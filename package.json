@@ -1,0 +1,19 @@
+{
+  "name": "any-given-morning",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Any Given Morning: a small farm, a small day, and about twenty seconds.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "sync": "bash sync.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  }
+}
