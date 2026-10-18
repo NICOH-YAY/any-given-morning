@@ -16,11 +16,11 @@ My idea was to make meaning out of lives that are meaningless by design. The gam
 
 In the first build there was little to do beyond picking flowers. With Mortality on, the playtester wandered and only saw on the third life that you die no matter what. With it off, they roamed with no goal. So I added an inventory, two-way dialogue, sidequests and the seaside, and the same playtester played again.
 
-This time, with Mortality on, they talked to whoever was nearby in the first lives. By the second life they knew death was certain. By the fourth they were trying to help at least one person before the end, and sometimes died halfway through a favor. With Mortality off, they wandered and talked to a few people, and they did not try to finish anything. My first prediction held. The second failed twice, even after the sidequests.
+This time, with Mortality on, they talked to whoever was nearby in the first lives. By the second life they knew death was certain. By the fourth they were trying to help at least one person before the end, and sometimes died halfway through a favor. By contrast, with Mortality off, they wandered and talked to a few people, and they did not try to finish anything. My first prediction held. The second failed twice, even after the sidequests.
 
 ## Aesthetic
 
-In the first run they were confused, and they laughed when a UFO took them. In the second run the deaths surprised them, and the meteor was their favorite. Dying in the middle of helping someone felt bad, and the short lives felt rushed. They said the rush made one small action for someone feel meaningful, and that the clock gave the life meaning. With Mortality off, they did not feel like doing much.
+In the first run they were confused, and they laughed when a UFO took them. In the second run the deaths surprised them, and the meteor was their favorite. Dying in the middle of helping someone felt bad, and the short lives felt rushed. They said the rush made one small action for someone feel meaningful, and that the clock gave the life meaning. By contrast, with Mortality off, they did not feel like doing much.
 
 That is close to what I hoped for. Nothing in a life lasts, and by the fourth one they chose to spend it on someone else.
 
@@ -28,4 +28,4 @@ That is close to what I hoped for. Nothing in a life lasts, and by the fourth on
 
 > Visible impact, as when World of Warcraft changes the world after a player's quests, so that "your actions are having a significant impact on the world" (McGonigal 2011, ch. 3).
 
-A short life pushed the playtester toward one visible act for one person, and a finished favor changes the place, such as a lantern that gets its oil. Art is Kenney's Tiny Farm (CC0) plus three Higgsfield sprites. Codex suggested seeding worlds, lifespans and deaths on separate streams. I kept it, so nothing a player does can move the moment of death.
+Mortality is what turned this item into play. Because every life ends without warning, the playtester tried to finish one favor for one person before the end, and a finished favor changes the place, such as a lantern that gets its oil. By contrast, with Mortality off the same favors were there, and they left them undone. Art is Kenney's Tiny Farm (CC0) plus three Higgsfield sprites. Codex suggested seeding worlds, lifespans and deaths on separate streams. I kept it, so nothing a player does can move the moment of death.
