@@ -10,6 +10,20 @@ function grid(...rows: string[]): string[] {
   return Array.from({ length: 16 }, (_, i) => (rows[i] ?? "").padEnd(16, ".").slice(0, 16));
 }
 export const GRIDS: Record<string, string[]> = {
+  bait: grid("", "", "", "", "...oooo.........", "..oppppo........", "..op..ppo.......", ".......po.......", ".....oppo.......", "....oppo........", "....op..........", "....opppo.......", ".....oooo......."),
+  fish: grid("", "", "", "", "......oooo......", "....oocccco.....", "..ooccccccko....", "..ocBccBccco.oo.", "..oocccccccooBo.", "....oocccco.BBo.", "......oooo...oo."),
+  leaf: grid("", "", "", ".........oo.....", ".......ooggo....", ".....ooggggo....", "....ogggdgo.....", "....oggdgo......", ".....odgo.......", ".....do........."),
+  leaf_boat: grid("", "", "", ".......d........", ".......do.......", ".......dwo......", ".......dwwo.....", ".......dwwwo....", ".......doooo....", "..oogggdggggoo..", "...oggggggggo...", "....oooooooo...."),
+  oil: grid("", "", "......oooo......", "......obbo......", ".....oooooo.....", ".....oyyyyo.....", ".....oywyyo.....", ".....oyyyyo.....", ".....oyyyyo.....", ".....oooooo....."),
+  meal: grid("", "", "", "", "....oooooooo....", "...otttttttto...", "...otwttwttto...", "....otttttto....", "..oowwwwwwwwoo..", "...oooooooooo..."),
+  ribbon: grid("", "", "", "", "...ooo....ooo...", "..orrrroorrrro..", "..orrrroorrrro..", "...oooorroooo...", "......orro......", ".....orro.......", ".....orro......."),
+  seed: grid("", "", "", "....ooooooo.....", "....owwwwwo.....", "....owggwwo.....", "....owggwwo.....", "....owddwwo.....", "....owwwww o....".replaceAll(" ", "w"), "....ooooooo....."),
+  note: grid("", "", "", "....ooooooo.....", "....owwwwwo.....", "....owwowwo.....", "....owwowwo.....", "....owwowwo.....", "....owooowo.....", "....owwwww o....".replaceAll(" ", "w"), "....ooooooo....."),
+  planter: grid("", "", "", "", "", "", "..oooooooooooo..", "..otttttttttto..", "...otttttttto...", "...obbbbbbbo....", "....ooooooo....."),
+  table: grid("", "", "", "", ".oooooooooooooo.", ".otttttttttttto.", ".obbbbbbbbbbbbo.", "...bb......bb...", "...bb......bb...", "...oo......oo..."),
+  song_post: grid("", "", ".....oooooooo...", ".....obbbbbbo...", ".....obbbbbbo...", ".....oooooooo...", "........b.......", "........b.......", "........b.......", ".....ooooooo...."),
+  worm_patch: grid("", "", "", "", "..ottttttto.....", ".otbtbtttbtto...", "..otttpppttto...", "...otbtbttto....", "....ooooooo....."),
+  fishing_spot: grid("", "", "", "", ".......b........", ".......b........", ".......b........", ".......b........", ".......r........", ".......w........", "......ccc......."),
   water_can: grid("................", "................", ".....oooo.......", "....occcco......", "....occcco......", "...ooooooo......", "...ocBBBBco.....", "...ocBBBBco.oo..", "...ocBBBBcooBco.", "...ocBBBBcccBo..", "...ocBBBBBcoo...", "...ocBBBBco.....", "...occcccco.....", "....oooooo......", "................", "................"),
   water: grid("BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBccBBBBBBBBBBBB", "BBBBcccBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBcccBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BcccBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBccBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB"),
   water2: grid("BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBccBBBB", "BBBBBBBBBBBBBBBB", "BBBBcccBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBcccBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBcccBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBccBBBBBBBBBB", "BBBBBBBBBBBBBBBB", "BBBBBBBBBBBBBBBB"),
@@ -88,7 +102,8 @@ export function createSprites(): Sprites {
     draw(ctx, name, x, y, size = 16, flip = false) {
       const generated = images.get(name);
       if (generated) { blit(ctx, generated, x, y, size, size * generated.height / generated.width, flip); return; }
-      const canvas = bitmap(name);
+      const aliases: Record<string, string> = { flower: "flowers", grain: "seed", lantern: "lamp", boat_launch: "dock" };
+      const canvas = bitmap(aliases[name] ?? name);
       if (canvas) blit(ctx, canvas, x, y, size, size, flip);
       else { ctx.fillStyle = palette[name === "water" ? "B" : "t"]; ctx.fillRect(x, y, size, size); }
     },

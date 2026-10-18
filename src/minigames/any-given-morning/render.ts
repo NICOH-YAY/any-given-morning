@@ -51,7 +51,19 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
   const prop = (kind: string, x: number, y: number, time: number) => {
     const names: Record<string, string> = { market_stall: "stall", flower_patch: "flowers", hat_on_post: "hat", cairn: "stone", water_bank: "stone" };
     const tiles: Record<string, number> = { bush: 39, fruit_bush: 78, hay_bale: 96, stacked_hay: 97, grain_sack: 74, trough: 112, crop_plot: 30, boot_on_fence: 84 };
-    if (kind === "barn") {
+    if (kind === "palm") {
+      rect("#3c3537", x - 2, y - 18, 5, 26); rect("#b67a4d", x - 1, y - 18, 3, 26);
+      for (const dx of [-1, 1]) { rect("#405c43", x + dx * 3 - 10, y - 22, 20, 3); rect("#729b48", x + dx * 10 - 6, y - 18, 12, 3); }
+      rect("#78513c", x - 4, y - 16, 4, 4); rect("#78513c", x + 2, y - 17, 4, 4);
+    } else if (kind === "lighthouse") {
+      rect("#3c3537", x - 8, y - 32, 17, 42); rect("#fff1cc", x - 6, y - 30, 13, 39);
+      rect("#c56b59", x - 6, y - 16, 13, 7); rect("#3c3537", x - 10, y - 35, 21, 4);
+      rect("#568f9d", x - 5, y - 29, 11, 7); rect("#78513c", x - 3, y + 1, 6, 8);
+    } else if (kind === "sandcastle") {
+      rect("#b67a4d", x - 9, y - 6, 19, 14); rect("#efc35c", x - 8, y - 5, 17, 11);
+      for (let i = 0; i < 3; i++) rect("#efc35c", x - 8 + i * 7, y - 10, 4, 6);
+      rect("#78513c", x - 2, y + 1, 4, 6);
+    } else if (kind === "barn") {
       for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) sprites.tile(ctx, [90, 102, 126][row] + col, x - 8 + col * 16, y - 24 + row * 16);
     } else if (kind === "crop_plots") {
       for (let i = 0; i < 6; i++) { sprites.tile(ctx, 49, x - 8 + i % 3 * 16, y - 8 + Math.floor(i / 3) * 16); sprites.tile(ctx, 29 + i % 2, x - 8 + i % 3 * 16, y - 11 + Math.floor(i / 3) * 16); }
@@ -67,20 +79,24 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
   return {
     ready: sprites.ready,
     draw(life, dialogue) {
-      const available = Math.min(960, canvas.parentElement?.clientWidth || 320);
-      const cssWidth = available < 320 ? available : Math.floor(available / 320) * 320;
-      canvas.style.maxWidth = `${cssWidth}px`;
+      const cssWidth = parseFloat(canvas.style.width) || 320;
       const scale = Math.max(1, Math.floor(cssWidth * (window.devicePixelRatio || 1) / 320));
       if (canvas.width !== 320 * scale || canvas.height !== 192 * scale) { canvas.width = 320 * scale; canvas.height = 192 * scale; }
       ctx.imageSmoothingEnabled = context.imageSmoothingEnabled = false;
       const time = life.elapsed + life.dyingElapsed, motion = reduced() ? 0 : time;
       const world = life.world, waterFrame = Math.floor(motion * 1.5) % 2;
-      rect("#a6bc72", 0, 0, 320, 192);
+      rect(world.biome === "seaside" ? "#e5ce98" : "#a6bc72", 0, 0, 320, 192);
       ctx.save();
       const offset = shake(life, reduced()); ctx.translate(offset.x, offset.y);
       // Sparse seeded blades preserve the readable, pale ground of Tiny Farm.
       for (let row = 0; row < 12; row++) for (let col = 0; col < 20; col++) {
         const x = col * 16, y = row * 16, hash = (col * 37 + row * 73 + world.seed) >>> 0;
+        if (world.biome === "seaside" && col >= 14) {
+          rect("#568f9d", x, y, 16, 16);
+          const wave = reduced() ? 0 : Math.round(Math.sin(motion * 2 + row * .7) * 2);
+          rect(col === 14 ? "#fff1cc" : "#89bec1", x + wave + (col === 14 ? 0 : 6), y + (row * 7 % 12), col === 14 ? 3 : 7, 2);
+          continue;
+        }
         if (world.biome === "riverside" && col >= 15 && col < 19 && row > 0 && row < 11) {
           sprites.draw(ctx, col === 15 ? (waterFrame ? "shore2" : "shore") : (waterFrame ? "water2" : "water"), x, y); continue;
         }
@@ -88,20 +104,23 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
           const horizontalOnly = row === 6 && col !== 7;
           rect("#d8ba83", x, y + (horizontalOnly ? 3 : 0), 16, horizontalOnly ? 10 : 16);
           if (hash % 3 === 0) rect("#b99a69", x + 5, y + 8, 2, 1);
-        } else if (hash % 3 === 0) {
+        } else if (world.biome === "seaside") { if (hash % 4 === 0) rect("#c4a672", x + 6, y + 10, 2, 1); } else if (hash % 3 === 0) {
           const sway = Math.round(Math.sin(motion * 1.4 + hash)) * (hash % 2);
           rect("#819e55", x + 4 + sway, y + 9, 1, 3); rect("#819e55", x + 6, y + 10, 1, 2);
           rect("#bed185", x + 11, y + 4, 2, 1);
         }
       }
       // The boundary corresponds to the solid ring in the collision grid.
-      for (let x = 0; x < 20; x++) { sprites.tile(ctx, x % 3 === 0 ? 15 : 39, x * 16, -3); sprites.tile(ctx, 39, x * 16, 177); }
-      for (let y = 1; y < 11; y++) { sprites.tile(ctx, 39, -3, y * 16); sprites.tile(ctx, 39, 307, y * 16); }
+      for (let x = 0; x < (world.biome === "seaside" ? 14 : 20); x++) { sprites.tile(ctx, x % 3 === 0 ? 15 : 39, x * 16, -3); sprites.tile(ctx, 39, x * 16, 177); }
+      for (let y = 1; y < 11; y++) { sprites.tile(ctx, 39, -3, y * 16); if (world.biome !== "seaside") sprites.tile(ctx, 39, 307, y * 16); }
       const entities: { at: Point; draw: () => void }[] = [];
       const add = (at: Point, draw: () => void) => entities.push({ at, draw });
       world.props.forEach((p) => add(p, () => { shadow(p.x, p.y, p.kind === "barn" ? 24 : 7); prop(p.kind, p.x, p.y, motion); }));
       world.stations.forEach((s) => {
-        if (!world.props.some((p) => p.x === s.x && p.y === s.y && p.kind === s.kind)) add(s, () => prop(s.kind, s.x, s.y, motion));
+        if (!world.props.some((p) => p.x === s.x && p.y === s.y && p.kind === s.kind)) add(s, () => {
+          prop(s.kind, s.x, s.y, motion);
+          if (s.kind === "lantern") rect("#57576b", s.x - 3, s.y - 7, 4, 5);
+        });
       });
       world.traces.forEach((t) => add(t, () => prop(t.kind, t.x, t.y, motion)));
       if (world.easterEgg) { const egg = world.easterEgg; add(egg, () => prop(egg.kind, egg.x, egg.y, motion)); }
@@ -113,6 +132,20 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
         else sprites.tile(ctx, { chicken: 122, cow: 121, sheep: 120, gator: 121 }[a.kind], a.x - 8, a.y - 10 + peck, Math.sin(motion * 0.3 + i) < 0);
         if (a.kind === "cow") rect("#78513c", a.x + 6, a.y - 2 + Math.round(Math.sin(motion * 3) * 2), 3, 1);
       }));
+      world.changes.forEach((change) => add(change, () => {
+        const age = reduced() ? 2 : time - change.at;
+        if (change.kind === "lantern" && change.item === "ribbon") sprites.draw(ctx, "ribbon", change.x - 4, change.y - 9, 10);
+        else if (change.kind === "lantern") {
+          ctx.globalAlpha = .17; rect("#efc35c", change.x - 18, change.y - 22, 36, 36); ctx.globalAlpha = 1;
+          rect("#fff1cc", change.x - 2, change.y - 7, 4, 5);
+        } else if (change.kind === "boat_launch") {
+          const travel = Math.min(38, age * 7);
+          sprites.draw(ctx, "leaf_boat", change.x - 8 + travel, change.y - 8 + (reduced() ? 0 : Math.sin(age * 3)), 16);
+        } else if (change.kind === "song_post") {
+          sprites.draw(ctx, "note", change.x - 7, change.y - 20 - (age * 4 % 12), 12);
+        } else if (change.kind === "table") sprites.draw(ctx, change.item === "fish" ? "fish" : "meal", change.x - 1, change.y - 18);
+        else sprites.draw(ctx, "flowers", change.x - 8, change.y - 18);
+      }));
       world.npcs.forEach((npc, i) => add(npc, () => {
         shadow(npc.x, npc.y);
         const bob = reduced() ? 0 : Math.round(Math.sin(motion * 2 + npc.phase) * 0.65);
@@ -123,7 +156,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
           if (npc.archetype === "couple") sprites.person(ctx, i + 2, npc.x + 2, npc.y - 12 - bob, true);
         }
       }));
-      const player = playerPose(life), speed = Math.hypot(life.player.vx, life.player.vy);
+      const player = playerPose(life, reduced()), speed = Math.hypot(life.player.vx, life.player.vy);
       if (life.player.vx !== 0) facing = life.player.vx < 0;
       add(life.player, () => {
         if (life.round.screen === "PLAY") shadow(player.x, player.y);
@@ -134,7 +167,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
           } ctx.globalAlpha = 1;
         }
         ctx.save(); ctx.globalAlpha = player.alpha;
-        ctx.translate(Math.round(player.x), Math.round(player.y)); ctx.scale(player.scale, player.scale);
+        ctx.translate(Math.round(player.x), Math.round(player.y)); ctx.scale(player.scale * player.stretch, player.scale / player.stretch);
         const walking = !reduced() && speed > 8;
         if (walking) ctx.scale(1 + Math.sin(motion * 18) * 0.025, 1 - Math.sin(motion * 18) * 0.025);
         const bob = walking ? Math.round(Math.sin(motion * 18)) : 0;
@@ -143,7 +176,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
         sprites.person(ctx, 0, -8, -12 + bob, facing);
         if (sitting) rect("#3c3537", facing ? -6 : 2, 2, 5, 2);
         ctx.restore();
-        if (life.round.screen === "PLAY") drawCarriedItems(ctx, life, sprites, player.x, Math.max(1, player.y - 24));
+
       });
       entities.sort((a, b) => a.at.y - b.at.y).forEach((e) => e.draw());
       const target = nearestInteraction(life), adjacent = target?.at;
@@ -161,15 +194,30 @@ export function createRenderer(canvas: HTMLCanvasElement, reduced: () => boolean
       for (let i = 0; i < 4; i++) { const x = (motion * 2 + i * 111) % 440 - 70; rect("#fff1cc", x, 20 + i * 39, 40, 8); rect("#fff1cc", x + 10, 14 + i * 39, 22, 8); }
       ctx.globalAlpha = Math.min(1, life.elapsed / 20) * 0.17; rect("#c67c54", 0, 0, 320, 192); ctx.globalAlpha = 1;
       drawEffects(ctx, life, sprites, reduced()); ctx.restore();
-      if (dialogue && life.round.screen === "PLAY") {
+      if (life.round.screen === "PLAY") {
+        // Four outlined slots stay at the corner. They contain only carried objects.
+        for (let slot = 0; slot < 4; slot++) {
+          rect("#3c3537", 4 + slot * 19, 170, 19, 19); rect("#fff1cc", 5 + slot * 19, 171, 17, 17);
+          const item = life.inventory[slot];
+          if (item === "grain") sprites.tile(ctx, 74, 5 + slot * 19, 171);
+          else if (item) sprites.draw(ctx, item === "water" ? "water_can" : item, 5 + slot * 19, 171);
+        }
+        if (life.fishing) {
+          const dip = life.elapsed >= life.fishing.biteAt && life.fishing.baited;
+          const at = life.fishing.at;
+          rect("#3c3537", at.x + 7, at.y + (dip ? 9 : 4), 3, 5);
+          rect(dip ? "#efc35c" : "#c56b59", at.x + 8, at.y + (dip ? 9 : 4), 2, 3);
+        }
+      }
+      if (dialogue && !life.conversation && life.round.screen === "PLAY") {
         ctx.font = "8px ui-monospace, monospace";
         const lines: string[] = []; let line = "";
         for (const word of dialogue.split(" ")) {
           if (ctx.measureText(`${line} ${word}`).width > 278) { lines.push(line); line = word; } else line += `${line ? " " : ""}${word}`;
         } lines.push(line);
         const height = 14 + lines.length * 11;
-        rect("#3c3537", 10, 182 - height, 300, height); rect("#fff1cc", 12, 184 - height, 296, height - 4);
-        ctx.fillStyle = "#3c3537"; lines.forEach((text, i) => ctx.fillText(text, 20, 194 - height + i * 11));
+        rect("#3c3537", 10, 164 - height, 300, height); rect("#fff1cc", 12, 166 - height, 296, height - 4);
+        ctx.fillStyle = "#3c3537"; lines.forEach((text, i) => ctx.fillText(text, 20, 176 - height + i * 11));
       }
       context.setTransform(scale, 0, 0, scale, 0, 0); context.clearRect(0, 0, 320, 192); context.drawImage(scene, 0, 0);
     },

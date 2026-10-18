@@ -1,4 +1,5 @@
-import { COPY, DEATH_TEXT, DEED_TEXT, NPC_TEXT, TARGET_LABELS, type DeathKind, type DeedId } from "./text";
+import { CONVERSATIONS, QUESTS } from "./quests";
+import { COPY, DEATH_TEXT, DEED_TEXT, TARGET_LABELS, type DeathKind, type DeedId } from "./text";
 import { BIOMES, generateArea, isWalkable, MIN_INTERACTABLE_SPACING, mulberry32, seedFor, TRACE_KINDS, type Area, type Biome, type ItemKind, type LegacyTrace, type Npc, type Point, type Rng, type Station } from "./world";
 export { mulberry32 } from "./world";
 
@@ -9,6 +10,9 @@ export const ROUND_LIVES = 5;
 export const IMMORTAL_ROUND_SECONDS = 100;
 export const DYING_SECONDS = 2.5;
 export const LEGACY_CAP = 6;
+export const INVENTORY_SLOTS = 4;
+export const FISH_WAIT = 1.2;
+export const FISH_WINDOW = 0.6;
 export const MOVE_SPEED = 70;
 export const INTERACTION_RADIUS = 22;
 const EPSILON = 1e-9;
@@ -36,6 +40,11 @@ export interface DeathDefinition {
   animation: string;
 }
 export const DEATHS: readonly DeathDefinition[] = [
+  { kind: "shark", biomes: ["seaside"], weight: 2, peaceful: false, animation: "fin_lunge" },
+  { kind: "seagulls", biomes: ["seaside"], weight: 2, peaceful: false, animation: "gull_swarm" },
+  { kind: "rogue_wave", biomes: ["seaside"], weight: 2, peaceful: false, animation: "sea_surge" },
+  { kind: "coconut", biomes: ["seaside"], weight: 2, peaceful: false, animation: "palm_drop" },
+  { kind: "npc_attack", biomes: BIOMES, weight: 1, peaceful: false, animation: "pan_rush" },
   { kind: "meteor", biomes: BIOMES, weight: 3, peaceful: false, animation: "meteor_strike" },
   { kind: "lightning", biomes: BIOMES, weight: 2, peaceful: false, animation: "silhouette_ash" },
   { kind: "gator_explodes", biomes: ["riverside"], weight: 2, peaceful: false, animation: "gator_confetti" },
@@ -56,8 +65,8 @@ export function drawLifespan(rng: Rng): number {
   return LIFESPAN_BASE + (rng() * 2 - 1) * LIFESPAN_JITTER;
 }
 
-export function deathFor(biome: Biome, rng: Rng, usedKinds: readonly DeathKind[] = []): DeathDefinition {
-  const choices = DEATHS.filter((death) => death.biomes.includes(biome) && !usedKinds.includes(death.kind));
+export function deathFor(biome: Biome, rng: Rng, usedKinds: readonly DeathKind[] = [], annoyed = false): DeathDefinition {
+  const choices = DEATHS.filter((death) => death.biomes.includes(biome) && !usedKinds.includes(death.kind) && (death.kind !== "npc_attack" || annoyed));
   if (!choices.length) throw new Error("No unused death kind for this biome");
   let draw = rng() * choices.reduce((total, death) => total + death.weight, 0);
   for (const death of choices) {
@@ -76,6 +85,7 @@ export interface LifeSummary {
   cause: string;
   deedCount: number;
   deeds: Deed[];
+  quests: { title: string; finished: boolean }[];
 }
 export interface RoundState extends ScreenMachine {
   mortal: boolean;
@@ -83,6 +93,7 @@ export interface RoundState extends ScreenMachine {
   lifeCount: number;
   history: LifeSummary[];
   legacy: LegacyTrace[];
+  scheduledDeaths: DeathKind[];
 }
 export interface Session { state: RoundState; life: Life | null }
 export interface Life {
@@ -99,7 +110,10 @@ export interface Life {
   dyingElapsed: number;
   ended: boolean;
   deeds: Deed[];
-  inventory: (ItemKind | "grain" | "water")[];
+  inventory: ItemKind[];
+  conversation: { npcId: string; kind: "give" | "talk"; selected: number } | null;
+  fishing: { at: Point; biteAt: number; baited: boolean } | null;
+  attacker: Npc | null;
   idleSeconds: number;
   nearbySeconds: Record<string, number>;
   dialogue: string | null;
@@ -110,7 +124,7 @@ export interface Input { x?: number; y?: number; interact?: boolean }
 /** Rules mutate the supplied session/life and return it for the host's next render. */
 export function createSession(options: { mortal: boolean; seed: number }): Session {
   if (!Number.isSafeInteger(options.seed)) throw new RangeError("Seed must be a safe integer");
-  return { state: { ...options, seed: options.seed >>> 0, screen: "MENU", lifeCount: 0, history: [], legacy: [] }, life: null };
+  return { state: { ...options, seed: options.seed >>> 0, screen: "MENU", lifeCount: 0, history: [], legacy: [], scheduledDeaths: [] }, life: null };
 }
 
 export function startLife(session: Session): Life {
@@ -121,12 +135,13 @@ export function startLife(session: Session): Life {
   const index = round.lifeCount;
   const world = generateArea(seedFor(round.seed, index, 1), round.legacy);
   const deathAt = round.mortal ? drawLifespan(mulberry32(seedFor(round.seed, index, 2))) : null;
-  const usedKinds = round.history.flatMap((life) => life.kind ? [life.kind] : []);
+  const usedKinds = round.scheduledDeaths;
   const death = round.mortal ? deathFor(world.biome, mulberry32(seedFor(round.seed, index, 3)), usedKinds) : null;
+  if (death) round.scheduledDeaths.push(death.kind);
   const life: Life = {
     round, number: index + 1, world, player: { ...world.spawn, vx: 0, vy: 0 }, elapsed: 0,
     deathAt, death, telegraphAt: deathAt !== null && death && !death.peaceful ? deathAt - TELEGRAPH : null,
-    telegraph: false, dyingElapsed: 0, ended: false, deeds: [], inventory: [], idleSeconds: 0, nearbySeconds: {}, dialogue: null, sittingUntil: 0,
+    telegraph: false, dyingElapsed: 0, ended: false, deeds: [], inventory: [], conversation: null, fishing: null, attacker: null, idleSeconds: 0, nearbySeconds: {}, dialogue: null, sittingUntil: 0,
   };
   transition(round, "PLAY");
   round.lifeCount++;
@@ -162,8 +177,10 @@ function finishLife(life: Life): void {
 }
 
 function near(a: Point, b: Point): boolean { return Math.hypot(a.x - b.x, a.y - b.y) <= INTERACTION_RADIUS; }
-function take(life: Life, item: Life["inventory"][number]): void {
-  if (!life.inventory.includes(item)) life.inventory.push(item);
+export function take(life: Life, item: ItemKind): boolean {
+  if (life.inventory.length >= INVENTORY_SLOTS) return false;
+  life.inventory.push(item);
+  return true;
 }
 function consume(life: Life, item: Life["inventory"][number]): boolean {
   const index = life.inventory.indexOf(item);
@@ -172,50 +189,121 @@ function consume(life: Life, item: Life["inventory"][number]): boolean {
   return true;
 }
 
+const ERRAND_DEEDS: Record<Npc["archetype"], DeedId> = {
+  hatless_farmer: "returned_hat", chicken_keeper: "fed_chickens", river_child: "talked_to_child",
+  fisherman: "helped_fisherman", letter_recipient: "delivered_letter", gardener: "watered_crops",
+  couple: "errand_couple", dog: "errand_dog", sleeper: "errand_sleeper", pie_seller: "errand_pie_seller",
+  neighbor: "errand_neighbor", cloud_watcher: "errand_cloud_watcher", florist: "errand_florist", shepherd: "errand_shepherd",
+  lighthouse_keeper: "errand_lighthouse_keeper", sea_fisher: "errand_sea_fisher", sand_kid: "errand_sand_kid",
+};
 function talk(life: Life, npc: Npc): string {
-  const lines = NPC_TEXT[npc.archetype];
-  if (npc.need === "quiet") {
-    npc.talks++;
-    npc.awake = true;
-    npc.done = true;
-    recordDeed(life, "woke_sleeper");
-    return npc.talks === 1 ? lines.ask : npc.talks === 2 ? lines.again : lines.thanks;
-  }
-  if (npc.done) return lines.thanks;
+  if (npc.quest === "new") npc.quest = "asked";
   npc.talks++;
-  let deed: DeedId | null = null;
-  switch (npc.need) {
-    case "hat": if (consume(life, "hat")) deed = "returned_hat"; break;
-    case "stone": if (consume(life, "stone")) deed = "talked_to_child"; break;
-    case "letter": if (consume(life, "letter")) deed = "delivered_letter"; break;
-    case "line": if (npc.talks >= 2) deed = "helped_fisherman"; break;
-    case "pet": deed = "pet_dog"; break;
-    case "hello": deed = "said_hello"; break;
+  if (npc.need === "quiet" && !npc.awake) { npc.awake = true; recordDeed(life, "woke_sleeper"); }
+  if (npc.need === "pet") recordDeed(life, "pet_dog");
+  life.conversation = { npcId: npc.id, kind: "talk", selected: 0 };
+  return npc.done ? QUESTS[npc.archetype].thanks : CONVERSATIONS[npc.archetype][npc.node].line;
+}
+
+export function conversationOptions(life: Life): string[] {
+  const menu = life.conversation;
+  const npc = life.world.npcs.find((person) => person.id === menu?.npcId);
+  if (!menu || !npc) return [];
+  return menu.kind === "give" ? [...life.inventory.map((item) => TARGET_LABELS.items[item]), COPY.justTalk]
+    : CONVERSATIONS[npc.archetype][npc.node].replies.map((reply) => reply.text);
+}
+export function closeConversation(life: Life): void { life.conversation = null; life.dialogue = null; }
+
+/** Every gift leaves the bag. Only the requested item advances the errand. */
+export function give(life: Life, npc: Npc, slot: number): string | null {
+  if (life.round.screen !== "PLAY" || !near(life.player, npc) || !Number.isInteger(slot)) return null;
+  const item = life.inventory[slot];
+  if (!item) return null;
+  life.inventory.splice(slot, 1);
+  const quest = QUESTS[npc.archetype];
+  if (npc.quest === "new") npc.quest = "asked";
+  if (item === quest.wanted && !npc.done) {
+    completeErrand(life, npc);
+    life.dialogue = quest.thanks;
+  } else {
+    npc.wrongGifts++;
+    life.dialogue = quest.grumpy && npc.wrongGifts >= 2 ? "That's enough. Keep your hands out of my pan." : quest.otherGift;
+    if (quest.grumpy && npc.wrongGifts >= 2) life.attacker = npc;
   }
-  if (deed) {
-    recordDeed(life, deed);
-    npc.done = true;
-    return lines.thanks;
+  life.conversation = null;
+  return life.dialogue;
+}
+export function chooseReply(life: Life, choice: number): string | null {
+  if (life.round.screen !== "PLAY" || !Number.isInteger(choice)) return null;
+  const menu = life.conversation;
+  const npc = life.world.npcs.find((person) => person.id === menu?.npcId);
+  if (!menu || !npc) return null;
+  if (menu.kind === "give") {
+    if (choice === life.inventory.length) return life.dialogue = talk(life, npc);
+    return give(life, npc, choice);
   }
-  return npc.talks === 1 ? lines.ask : lines.again;
+  const reply = CONVERSATIONS[npc.archetype][npc.node].replies[choice];
+  if (!reply) return null;
+  if (reply.next === null) { closeConversation(life); return null; }
+  npc.node = reply.next;
+  menu.selected = 0;
+  return life.dialogue = CONVERSATIONS[npc.archetype][npc.node].line;
+}
+function completeErrand(life: Life, npc: Npc): void {
+  npc.done = true; npc.quest = "delivery";
+  recordDeed(life, ERRAND_DEEDS[npc.archetype]);
+  take(life, QUESTS[npc.archetype].reward);
+  if (npc.archetype === "lighthouse_keeper") life.world.changes.push({ kind: "lantern", item: "oil", x: 280, y: 18, at: life.elapsed });
+}
+function openPerson(life: Life, npc: Npc): string {
+  if (npc.quest === "new") npc.quest = "asked";
+  if (life.inventory.length) {
+    life.conversation = { npcId: npc.id, kind: "give", selected: 0 };
+    return npc.done ? QUESTS[npc.archetype].thanks : CONVERSATIONS[npc.archetype][npc.node].line;
+  }
+  return talk(life, npc);
+}
+
+function fish(life: Life, station: Station): string {
+  if (life.fishing) {
+    const attempt = life.fishing;
+    life.fishing = null;
+    if (!attempt.baited) return COPY.fishingEmpty;
+    if (life.elapsed + EPSILON < attempt.biteAt || life.elapsed - attempt.biteAt > FISH_WINDOW + EPSILON) return COPY.fishingMiss;
+    return take(life, "fish") ? COPY.fishingCaught : COPY.bagFull;
+  }
+  if (life.inventory.length >= INVENTORY_SLOTS && !life.inventory.includes("bait")) return COPY.bagFull;
+  life.fishing = { at: { x: station.x, y: station.y }, baited: consume(life, "bait"), biteAt: life.elapsed + FISH_WAIT };
+  return COPY.fishingWait;
 }
 
 function useStation(life: Life, station: Station): string | null {
+  const waiting = life.world.npcs.find((npc) => npc.quest === "delivery" && QUESTS[npc.archetype].destination === station.kind && life.inventory.includes(QUESTS[npc.archetype].reward));
+  if (waiting) {
+    consume(life, QUESTS[waiting.archetype].reward);
+    waiting.quest = "finished";
+    recordDeed(life, `quest_${waiting.archetype}`);
+    life.world.changes.push({ kind: station.kind, item: QUESTS[waiting.archetype].reward, x: station.x, y: station.y, at: life.elapsed });
+    return null;
+  }
   switch (station.kind) {
-    case "grain_sack": take(life, "grain"); return COPY.grain;
+    case "fishing_spot": return fish(life, station);
+    case "worm_patch": return take(life, "bait") ? "You took worms from the garden patch." : COPY.bagFull;
+    case "grain_sack": return take(life, "grain") ? COPY.grain : COPY.bagFull;
     case "trough":
       if (!consume(life, "grain")) return null;
       recordDeed(life, "fed_chickens");
-      life.world.npcs.filter((npc) => npc.need === "grain").forEach((npc) => { npc.done = true; });
+      life.world.npcs.filter((npc) => npc.need === "grain" && !npc.done).forEach((npc) => completeErrand(life, npc));
       return COPY.fed;
-    case "well": take(life, "water"); return COPY.can;
+    case "well": return take(life, "water") ? COPY.can : COPY.bagFull;
     case "crop_plot":
       if (!consume(life, "water")) return null;
       recordDeed(life, "watered_crops");
-      life.world.npcs.filter((npc) => npc.need === "water").forEach((npc) => { npc.done = true; });
+      life.world.npcs.filter((npc) => npc.need === "water" && !npc.done).forEach((npc) => completeErrand(life, npc));
       return COPY.watered;
-    case "flowers": recordDeed(life, "picked_flowers"); return COPY.flowers;
+    case "flowers": if (!take(life, "flower")) return COPY.bagFull; recordDeed(life, "picked_flowers"); return COPY.flowers;
     case "water_bank": recordDeed(life, "sat_by_water"); return COPY.water;
+    case "lantern": case "boat_launch": case "table": case "song_post": case "planter": return null;
     case "bench":
       Object.assign(life.player, { x: station.x, y: station.y, vx: 0, vy: 0 });
       life.sittingUntil = life.elapsed + 1.6;
@@ -228,9 +316,10 @@ function useStation(life: Life, station: Station): string | null {
 export function nearestInteraction(life: Life): { at: Point; label: string; act: () => string | null } | undefined {
   const targets = [
     ...life.world.items.filter((item) => !item.taken).map((item) => ({ at: item, label: TARGET_LABELS.items[item.kind], act: () => {
-      item.taken = true; take(life, item.kind); return COPY.pickedUp[item.kind];
+      if (!take(life, item.kind)) return COPY.bagFull;
+      item.taken = true; return `You picked up ${TARGET_LABELS.items[item.kind].toLowerCase()}.`;
     } })),
-    ...life.world.npcs.map((npc) => ({ at: npc, label: TARGET_LABELS.npcs[npc.archetype], act: () => talk(life, npc) })),
+    ...life.world.npcs.map((npc) => ({ at: npc, label: TARGET_LABELS.npcs[npc.archetype], act: () => openPerson(life, npc) })),
     ...life.world.stations.map((station) => ({ at: station, label: TARGET_LABELS.stations[station.kind], act: () => useStation(life, station) })),
     ...life.world.traces.map((trace) => ({ at: trace, label: TARGET_LABELS.trace, act: () => COPY.trace })),
   ].filter(({ at }) => near(life.player, at)).sort((a, b) =>
@@ -241,6 +330,11 @@ export function nearestInteraction(life: Life): { at: Point; label: string; act:
 /** Nearest reachable object wins. Input is ignored outside this life in PLAY. */
 export function interact(life: Life): string | null {
   if (life.round.screen !== "PLAY" || life.ended) return null;
+  if (life.conversation) return chooseReply(life, life.conversation.selected);
+  if (life.fishing) {
+    life.dialogue = fish(life, { id: "fishing_spot", kind: "fishing_spot", ...life.fishing.at });
+    return life.dialogue;
+  }
   life.idleSeconds = 0;
   life.nearbySeconds = {};
   life.sittingUntil = 0;
@@ -255,7 +349,7 @@ function canStand(world: Area, x: number, y: number): boolean {
   return [-4, 4].every((dx) => [-4, 4].every((dy) => isWalkable(world, x + dx, y + dy)));
 }
 function advance(life: Life, dt: number, input: Input): void {
-  const x = input.x ?? 0, y = input.y ?? 0;
+  const x = life.conversation ? 0 : input.x ?? 0, y = life.conversation ? 0 : input.y ?? 0;
   const magnitude = Math.max(1, Math.hypot(x, y));
   const moving = x !== 0 || y !== 0;
   if (moving) life.sittingUntil = 0;
@@ -267,6 +361,12 @@ function advance(life: Life, dt: number, input: Input): void {
   if (canStand(life.world, nextX, player.y)) player.x = nextX; else player.vx = 0;
   if (canStand(life.world, player.x, nextY)) player.y = nextY; else player.vy = 0;
   life.elapsed += dt;
+  if (life.fishing) {
+    if (Math.hypot(life.player.x - life.fishing.at.x, life.player.y - life.fishing.at.y) > INTERACTION_RADIUS) { life.fishing = null; life.dialogue = COPY.fishingMiss; }
+    else if (life.elapsed > life.fishing.biteAt + (life.fishing.baited ? FISH_WINDOW : 0) + EPSILON) {
+      life.dialogue = life.fishing.baited ? COPY.fishingMiss : COPY.fishingEmpty; life.fishing = null;
+    } else if (life.fishing.baited && life.elapsed + EPSILON >= life.fishing.biteAt) life.dialogue = COPY.fishingBite;
+  }
   const idle = !moving && !input.interact && Math.hypot(player.vx, player.vy) < 1;
   life.idleSeconds = idle ? life.idleSeconds + dt : 0;
   if (life.idleSeconds + EPSILON >= 4) recordDeed(life, "looked_at_sky");
@@ -310,6 +410,10 @@ export function step(life: Life, dt: number, input: Input = {}): Life {
     advance(life, frame, input);
     remaining = Math.max(0, remaining - frame);
   }
+  if (round.mortal && life.attacker && life.elapsed + EPSILON >= life.deathAt! - TELEGRAPH && !round.history.some((entry) => entry.kind === "npc_attack")) {
+    life.death = DEATHS.find((death) => death.kind === "npc_attack")!;
+    life.telegraphAt = life.deathAt! - TELEGRAPH;
+  }
   life.telegraph = life.telegraphAt !== null && life.elapsed + EPSILON >= life.telegraphAt;
   if (life.elapsed + EPSILON >= deadline) {
     life.elapsed = deadline;
@@ -326,11 +430,12 @@ export function summarizeLife(life: Life): LifeSummary {
     number: life.number, seconds: life.elapsed, died, kind: died ? life.death!.kind : null,
     cause: died ? DEATH_TEXT[life.death!.kind] : COPY.dayEnded,
     deedCount: life.deeds.length, deeds: life.deeds.map((deed) => ({ ...deed })),
+    quests: life.world.npcs.filter((npc) => npc.quest !== "new").map((npc) => ({ title: QUESTS[npc.archetype].title, finished: npc.quest === "finished" })),
   };
 }
 
 export function summarizeRound(session: Session): { mortal: boolean; mode: string; lives: LifeSummary[]; seconds: number; deedCount: number; deedsPerMinute: number } {
-  const lives = session.state.history.map((life) => ({ ...life, deeds: life.deeds.map((deed) => ({ ...deed })) }));
+  const lives = session.state.history.map((life) => ({ ...life, deeds: life.deeds.map((deed) => ({ ...deed })), quests: life.quests.map((quest) => ({ ...quest })) }));
   const seconds = lives.reduce((sum, life) => sum + life.seconds, 0);
   const deedCount = lives.reduce((sum, life) => sum + life.deedCount, 0);
   const activeDeeds = lives.reduce((sum, life) => sum + life.deeds.filter((deed) => deed.id !== "looked_at_sky" && deed.id !== "let_sleeper_sleep").length, 0);

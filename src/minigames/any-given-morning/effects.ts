@@ -2,19 +2,25 @@ import { DYING_SECONDS, TELEGRAPH, type Life } from "./game";
 import type { Sprites } from "./sprites";
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
-export function deathProgress(life: Life): number { return clamp(life.dyingElapsed / DYING_SECONDS); }
-export function playerPose(life: Life): { x: number; y: number; alpha: number; scale: number } {
-  const p = deathProgress(life), kind = life.death?.kind;
+export function deathProgress(life: Life): number { const t = clamp(life.dyingElapsed / DYING_SECONDS);
+  // The impact occupies a short slow beat, within the existing 2.5-second duration.
+  return t < .16 ? t * 1.375 : t < .32 ? .22 + (t - .16) * .2 : .252 + (t - .32) * (.748 / .68);
+ }
+export function playerPose(life: Life, reduced = false): { x: number; y: number; alpha: number; scale: number; stretch: number } {
+  const raw = deathProgress(life), p = raw * raw * (3 - 2 * raw), kind = life.death?.kind;
   let { x, y } = life.player, alpha = 1, scale = 1;
-  if (life.round.screen !== "DYING" && life.round.screen !== "DEAD") return { x, y, alpha, scale };
+  if (life.round.screen !== "DYING" && life.round.screen !== "DEAD") return { x, y, alpha, scale, stretch: 1 };
+  if (reduced) return { x, y, alpha: 1 - p, scale, stretch: 1 };
   if (kind === "ufo") { y -= p * 180; alpha = 1 - p; }
   else if (kind === "gator_explodes") { x += p * 70; y -= Math.sin(p * Math.PI) * 95; alpha = 1 - clamp((p - 0.7) * 4); }
-  else if (kind === "tornado" || kind === "crows") { x += Math.sin(p * 18) * p * 24; y -= p * 170; alpha = 1 - p; }
+  else if (kind === "tornado" || kind === "crows" || kind === "seagulls") { x += Math.sin(p * 18) * p * 24; y -= p * 170; alpha = 1 - p; }
   else if (kind === "sinkhole") { scale = 1 - p; alpha = 1 - p; y += p * 9; }
-  else if (kind === "flood") { x -= p * 120; alpha = 1 - p; }
+  else if (kind === "flood" || kind === "rogue_wave") { x -= p * 120; alpha = 1 - p; }
   else if (["bloom", "wave_goodbye", "lights_out"].includes(kind ?? "")) alpha = 1 - p;
-  else alpha = p < 0.15 ? 1 : 0;
-  return { x, y, alpha, scale };
+  else if (kind === "shark" || kind === "npc_attack") { x -= p * 65; y -= Math.sin(p * Math.PI) * 35; alpha = 1 - p; }
+  else alpha = 1 - clamp((raw - .25) * 9);
+  const impact = Math.sin(clamp((raw - .18) / .16) * Math.PI);
+  return { x, y, alpha, scale, stretch: 1 + impact * .45 };
 }
 
 export function shake(life: Life, reduced: boolean): { x: number; y: number } {
@@ -27,7 +33,7 @@ export function shake(life: Life, reduced: boolean): { x: number; y: number } {
 export function drawEffects(ctx: CanvasRenderingContext2D, life: Life, sprites: Sprites, reduced: boolean): void {
   const dying = life.round.screen === "DYING" || life.round.screen === "DEAD";
   if (!life.death || (!dying && !life.telegraph)) return;
-  const p = deathProgress(life), warning = clamp(1 - ((life.deathAt ?? 0) - life.elapsed) / TELEGRAPH);
+  const p = reduced && dying ? .6 : deathProgress(life), warning = clamp(1 - ((life.deathAt ?? 0) - life.elapsed) / TELEGRAPH);
   const { x, y } = life.player;
   const rect = (color: string, a: number, b: number, w: number, h: number) => {
     ctx.fillStyle = color; ctx.fillRect(Math.round(a), Math.round(b), Math.round(w), Math.round(h));
@@ -36,7 +42,7 @@ export function drawEffects(ctx: CanvasRenderingContext2D, life: Life, sprites: 
     ctx.fillStyle = color; ctx.beginPath(); ctx.ellipse(a, b, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2); ctx.fill();
   };
   const burst = (colors: string[], count: number, radius = 50, fall = 30) => {
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < (reduced ? Math.min(count, 6) : count); i++) {
       const angle = i * 2.39996, distance = (0.25 + (i % 7) / 9) * radius * Math.sqrt(p);
       rect(colors[i % colors.length], x + Math.cos(angle) * distance, y - 8 + Math.sin(angle) * distance + p * p * fall, 2, 2 + i % 2);
     }
@@ -56,6 +62,54 @@ export function drawEffects(ctx: CanvasRenderingContext2D, life: Life, sprites: 
   };
   ctx.save();
   switch (life.death.kind) {
+    case "shark": {
+      const phase = dying ? p : warning;
+      const sx = dying ? x + 75 * Math.pow(1 - clamp(p * 3), 2) : x + Math.cos(phase * Math.PI * 3) * 24;
+      const sy = dying ? y - Math.sin(clamp(p * 3) * Math.PI) * 24 : y + Math.sin(phase * Math.PI * 3) * 9;
+      ctx.fillStyle = "#57576b"; ctx.beginPath(); ctx.moveTo(sx - 8, sy + 5); ctx.lineTo(sx + 4, sy - 11); ctx.lineTo(sx + 8, sy + 5); ctx.fill();
+      if (dying) { oval("#89bec1", sx, sy + 5, 17, 6); rect("#3c3537", sx - 8, sy + 2, 2, 2); burst(["#fff1cc", "#89bec1"], 28, 35); }
+      break;
+    }
+    case "npc_attack": {
+      const home = life.attacker?.home ?? { x: x + 65, y };
+      const q = dying ? clamp(p * 4) : warning * .65;
+      const ease = q * q * (3 - 2 * q);
+      const nx = home.x + (x - home.x) * ease, ny = home.y + (y - home.y) * ease;
+      sprites.person(ctx, 1, nx - 8, ny - 13, nx > x);
+      ctx.save(); ctx.translate(nx + 7, ny - 9); ctx.rotate(dying ? -clamp(p * 5) * 2 : -.6); rect("#78513c", -1, -12, 2, 11); oval("#57576b", 0, -15, 6, 4); ctx.restore();
+      if (dying) burst(["#efc35c", "#fff1cc"], 12, 27);
+      break;
+    }
+    case "seagulls":
+      for (let i = 0; i < 14; i++) {
+        const q = dying ? p : warning * .15;
+        const bx = x + Math.sin(i * 5 + q * 16) * (dying ? 24 : 38), by = y - 32 - q * 110 + Math.cos(i * 3) * 10;
+        rect("#fff1cc", bx - 5, by, 10, 2); rect("#fff1cc", bx + (i % 2 ? 3 : -5), by - 3, 3, 3); rect("#efc35c", bx + 5, by + 1, 2, 1);
+      }
+      if (dying) burst(["#fff1cc", "#d4e3bf"], 24, 40, 18);
+      break;
+    case "rogue_wave": {
+      const edge = dying ? 320 - p * p * 470 : 300 - warning * 18;
+      rect("#568f9d", edge, 0, 400, 192);
+      for (let i = 0; i < 18; i++) { oval("#89bec1", edge - 5, i * 12, 12, 8); oval("#fff1cc", edge - 10, i * 12 - 3, 7, 4); }
+      if (dying) burst(["#fff1cc", "#89bec1"], 32, 60);
+      break;
+    }
+    case "coconut": {
+      const palm = life.world.props.find((prop) => prop.kind === "palm") ?? { x, y: y - 50 };
+      if (!dying) {
+        shadow(.6);
+        oval("#78513c", palm.x + (reduced ? 0 : Math.sin(warning * 24) * 2), palm.y - 17, 4, 4);
+      } else {
+        const q = clamp(p / .23), fall = q * q;
+        const bounce = p > .23 ? Math.abs(Math.sin((p - .23) * 11)) * (1 - p) * 16 : 0;
+        const cx = palm.x + (x - palm.x) * fall + Math.max(0, p - .23) * 36;
+        const cy = palm.y - 17 + (y + 12 - palm.y) * fall - bounce;
+        oval("#3c3537", cx, cy, 5, 5); oval("#78513c", cx, cy - 1, 4, 4);
+        if (p > .22) burst(["#efc35c", "#b67a4d"], 18, 23);
+      }
+      break;
+    }
     case "meteor": case "comet_pair":
       if (!dying) shadow();
       else { meteor(p * 1.6); if (life.death.kind === "comet_pair" && p > 0.48) meteor((p - 0.48) * 2, 5); burst(["#efc35c", "#c56b59", "#78513c"], 25, 38, 27); }
@@ -151,6 +205,10 @@ export function drawEffects(ctx: CanvasRenderingContext2D, life: Life, sprites: 
   }
   if (!reduced && dying && !life.death.peaceful && p > 0.12 && p < 0.2) {
     ctx.globalAlpha = (0.2 - p) * 4; rect("#fff1cc", 0, 0, 320, 192);
+  }
+  if (dying) {
+    ctx.globalAlpha = clamp((life.dyingElapsed / DYING_SECONDS - .78) / .22) * .8;
+    rect("#242839", 0, 0, 320, 192);
   }
   ctx.restore();
 }

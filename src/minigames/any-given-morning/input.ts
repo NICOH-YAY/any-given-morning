@@ -33,7 +33,7 @@ export function bindInput(root: HTMLElement, touch: HTMLElement, screen: () => S
   for (const [direction, label] of Object.entries(labels)) {
     const button = document.createElement("button"); button.type = "button";
     button.dataset.direction = direction; button.setAttribute("aria-label", label);
-    button.textContent = { up: "▲", left: "◀", down: "▼", right: "▶", interact: "A" }[direction]!;
+    button.textContent = { up: "Up", left: "Left", down: "Down", right: "Right", interact: "E" }[direction]!;
     button.className = `agm-touch-${direction}`; touch.append(button);
     listen(button, "pointerdown", ((event: PointerEvent) => {
       if (screen() !== "PLAY") return;

@@ -1,14 +1,15 @@
 import type { Archetype, DeedId } from "./text";
+import { QUESTS } from "./quests";
 
 export const GRID_WIDTH = 20;
 export const GRID_HEIGHT = 12;
 export const TILE_SIZE = 16;
 export const MIN_INTERACTABLE_SPACING = 2 * TILE_SIZE;
-export const BIOMES = ["farm", "riverside", "orchard", "village_edge"] as const;
+export const BIOMES = ["farm", "riverside", "orchard", "village_edge", "seaside"] as const;
 export type Biome = typeof BIOMES[number];
 export type Rng = () => number;
 export interface Point { x: number; y: number }
-export type ItemKind = "hat" | "stone" | "letter" | "apple";
+export type ItemKind = "hat" | "stone" | "letter" | "apple" | "grain" | "water" | "flower" | "bait" | "fish" | "frog" | "leaf" | "leaf_boat" | "oil" | "meal" | "ribbon" | "seed" | "note";
 export type Need = "hat" | "grain" | "stone" | "line" | "company" | "pet" | "letter" | "quiet" | "water" | "hello" | "sky" | "flowers";
 export interface Npc extends Point {
   id: string;
@@ -19,9 +20,12 @@ export interface Npc extends Point {
   talks: number;
   done: boolean;
   awake: boolean;
+  wrongGifts: number;
+  node: number;
+  quest: "new" | "asked" | "delivery" | "finished";
 }
 export interface Item extends Point { id: string; kind: ItemKind; taken: boolean }
-export type StationKind = "grain_sack" | "trough" | "well" | "crop_plot" | "flowers" | "water_bank" | "bench";
+export type StationKind = "grain_sack" | "trough" | "well" | "crop_plot" | "flowers" | "water_bank" | "bench" | "worm_patch" | "fishing_spot" | "lantern" | "boat_launch" | "table" | "song_post" | "planter";
 export interface Station extends Point { id: string; kind: StationKind }
 export interface Prop extends Point { kind: string; blocking: boolean }
 export interface Animal extends Point { kind: "chicken" | "cow" | "sheep" | "frog" | "gator"; hidden: boolean }
@@ -43,6 +47,7 @@ export interface Area {
   stations: Station[];
   animals: Animal[];
   traces: PlacedTrace[];
+  changes: { kind: StationKind; item?: ItemKind; x: number; y: number; at: number }[];
   easterEgg: (Point & { kind: "boot_on_fence" }) | null;
 }
 
@@ -65,6 +70,9 @@ export function seedFor(seed: number, index: number, stream: number): number {
 }
 
 const ARCHETYPES: { archetype: Archetype; need: Need; biomes?: readonly Biome[] }[] = [
+  { archetype: "lighthouse_keeper", need: "hello", biomes: ["seaside"] },
+  { archetype: "sea_fisher", need: "line", biomes: ["seaside"] },
+  { archetype: "sand_kid", need: "stone", biomes: ["seaside"] },
   { archetype: "hatless_farmer", need: "hat" },
   { archetype: "chicken_keeper", need: "grain", biomes: ["farm"] },
   { archetype: "river_child", need: "stone", biomes: ["riverside"] },
@@ -135,6 +143,13 @@ export function generateArea(seed: number, legacy: readonly LegacyTrace[] = [], 
     prop("dock", 15, 6);
     prop("reeds", 14, 3);
     prop("reeds", 14, 9);
+  } else if (biome === "seaside") {
+    for (let y = 1; y < GRID_HEIGHT - 1; y++) for (let x = 14; x < GRID_WIDTH - 1; x++) collision[y][x] = true;
+    for (let x = 14; x <= 17; x++) collision[6][x] = false;
+    prop("dock", 14, 6);
+    prop("palm", 12, 2, true);
+    prop("lighthouse", 17, 2, true);
+    prop("sandcastle", 11, 9);
   } else if (biome === "orchard") {
     prop("fruit_bush", 6, 3, true);
     prop("fruit_bush", 10, 8, true);
@@ -148,7 +163,7 @@ export function generateArea(seed: number, legacy: readonly LegacyTrace[] = [], 
   const propCount = integer(props.length, 6);
   while (props.length < propCount) {
     const x = integer(7, 13), y = integer(2, 9);
-    if (collision[y][x] || props.some((p) => p.x === tileCenter(x, y).x && p.y === tileCenter(x, y).y)) continue;
+    if (y === 6 || (biome === "seaside" && x === 13 && y === 9) || collision[y][x] || props.some((p) => p.x === tileCenter(x, y).x && p.y === tileCenter(x, y).y)) continue;
     prop(biome === "farm" ? "hay_bale" : "bush", x, y, true);
   }
 
@@ -177,22 +192,18 @@ export function generateArea(seed: number, legacy: readonly LegacyTrace[] = [], 
   };
   const pool = ARCHETYPES.filter((npc) => !npc.biomes || npc.biomes.includes(biome));
   const selected: typeof ARCHETYPES = [];
-  let requiredItems = 0;
-  const npcCount = integer(2, 4);
-  while (selected.length < npcCount) {
-    const index = integer(0, pool.length - 1);
-    const [definition] = pool.splice(index, 1);
-    const needsItem = ["hat", "stone", "letter"].includes(definition.need);
-    if (needsItem && requiredItems >= 2) continue;
-    if (needsItem) requiredItems++;
-    selected.push(definition);
-  }
+  const npcCount = biome === "seaside" ? 3 : integer(2, 3);
+  if (biome === "seaside") selected.push(...pool.filter((npc) => ["lighthouse_keeper", "sea_fisher", "sand_kid"].includes(npc.archetype)));
+  while (selected.length < npcCount) selected.push(pool.splice(integer(0, pool.length - 1), 1)[0]);
   const stations: Station[] = [];
   const addStation = (kind: StationKind, position?: Point) => {
     if (stations.some((station) => station.kind === kind)) return;
-    const at = position ? reserve(position) : place(true, true);
+    if (kind === "boat_launch" && (biome === "seaside" || biome === "riverside")) position = tileCenter(biome === "seaside" ? 13 : 14, 9);
+    const at = position ? reserve(position) : place(!["lantern", "boat_launch", "table", "song_post", "planter"].includes(kind), true);
     stations.push({ id: kind, kind, ...at });
   };
+  if (selected.some((npc) => QUESTS[npc.archetype].destination === "boat_launch")) addStation("boat_launch");
+  if (biome === "seaside") { addStation("fishing_spot", tileCenter(17, 6)); addStation("worm_patch"); }
   if (biome === "riverside") addStation("water_bank", tileCenter(14, 6));
   const bench = props.find((prop) => prop.kind === "bench");
   const hasCouple = selected.some((npc) => npc.need === "company");
@@ -203,23 +214,27 @@ export function generateArea(seed: number, legacy: readonly LegacyTrace[] = [], 
   // An occupied bench has one target, the couple. It has no sitting station.
   const npcs: Npc[] = selected.map((definition) => {
     const home = definition.need === "company" && bench ? { x: bench.x, y: bench.y } : place(true, true);
-    return { ...definition, id: definition.archetype, ...home, home, phase: rng() * Math.PI * 2, talks: 0, done: false, awake: false };
+    return { ...definition, id: definition.archetype, ...home, home, phase: rng() * Math.PI * 2, talks: 0, done: false, awake: false, wrongGifts: 0, node: 0, quest: "new" };
   });
   const items: Item[] = [];
   const addItem = (kind: ItemKind) => items.push({ id: `item-${items.length}`, kind, ...place(true, true), taken: false });
   for (const npc of npcs) {
-    if (npc.need === "hat" || npc.need === "letter" || npc.need === "stone") addItem(npc.need);
+    const quest = QUESTS[npc.archetype];
+    const wanted = quest.wanted;
+    if (wanted === "water") { addStation("well"); addStation("crop_plot"); }
+    else if (wanted === "grain") { addStation("grain_sack"); addStation("trough"); }
+    else if (wanted === "flower") { /* The flower patch is renewable. */ }
+    else if (wanted === "bait" || wanted === "fish") addStation("worm_patch");
+    else addItem(wanted);
+    addStation(quest.destination);
   }
-  const itemCount = Math.max(requiredItems, integer(1, 2));
-  while (items.length < itemCount) addItem("apple");
+  if (!items.length) addItem("apple");
   addStation("flowers");
-  if (npcs.some((npc) => npc.need === "grain")) { addStation("grain_sack"); addStation("trough"); }
-  if (npcs.some((npc) => npc.need === "water")) { addStation("well"); addStation("crop_plot"); }
   const animals: Animal[] = biome === "farm"
     ? ["chicken", "cow", "sheep"].map((kind) => ({ kind: kind as Animal["kind"], ...place(), hidden: false }))
     : [{ kind: biome === "riverside" ? "frog" : "chicken", ...place(), hidden: false }];
   if (biome === "riverside") animals.push({ kind: "gator", ...tileCenter(18, 7), hidden: true });
   const easterEgg = rng() < 1 / 32 ? { kind: "boot_on_fence" as const, ...place() } : null;
   const traces = legacy.slice(0, 6).map((trace) => ({ ...trace, ...place() }));
-  return { seed, biome, width: GRID_WIDTH, height: GRID_HEIGHT, tileSize: TILE_SIZE, spawn, collision, npcs, items, props, stations, animals, traces, easterEgg };
+  return { seed, biome, width: GRID_WIDTH, height: GRID_HEIGHT, tileSize: TILE_SIZE, spawn, collision, npcs, items, props, stations, animals, traces, easterEgg, changes: [] };
 }
