@@ -95,7 +95,7 @@ export function mountMorning(el: HTMLElement, options: { seed?: number; onSessio
       if (summary.deeds.length) summary.deeds.forEach((deed) => pane.append(h("p", { class: "agm-deed" }, deed.text)));
       else pane.append(h("p", {}, COPY.noDeeds));
       for (const quest of summary.quests) pane.append(h("p", {}, `${quest.finished ? COPY.questFinished : COPY.questUnfinished}: ${quest.title}`));
-      pane.append(h("p", { class: "agm-caption" }, final ? COPY.roundOver : COPY.reset), h("p", {}, COPY.lifeNumber(Math.min(ROUND_LIVES, session.state.lifeCount + 1), ROUND_LIVES)), button("respawn", final ? COPY.finishRound : COPY.respawn, respawn), button("menu", COPY.backToMenu, menu));
+      pane.append(h("p", { class: "agm-caption" }, final ? COPY.roundOver : COPY.reset), h("p", {}, COPY.lifeNumber(Math.min(ROUND_LIVES, session.state.lifeCount + 1), ROUND_LIVES)), button("respawn", final ? COPY.finishRound : COPY.respawn, respawn), button("menu", COPY.backToMenu, menu), button("fullscreen", COPY.fullScreen, () => { void fullscreen.toggle(); }));
       dialogue.textContent = `${summary.cause} ${COPY.lived(summary.seconds)} ${summary.deeds.map((deed) => deed.text).join(" ") || COPY.noDeeds}`;
       canvas.setAttribute("aria-label", summary.cause);
       pane.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
@@ -117,7 +117,7 @@ export function mountMorning(el: HTMLElement, options: { seed?: number; onSessio
       }
       const table = h("table", {}, h("caption", {}, round.mode), h("thead", {}, h("tr", {}, ...["Life", COPY.secondsHeading, COPY.causeHeading, COPY.deedCountHeading, COPY.deedHeading].map((text) => h("th", { scope: "col" }, text)))), body);
       const reflection = h("aside", { class: "agm-reflection" }, h("h4", {}, COPY.reflectionTitle), h("p", {}, COPY.reflectionFeeling), h("p", {}, COPY.reflectionTime), h("p", {}, COPY.reflectionSwitch));
-      pane.append(h("h3", {}, COPY.ledgerTitle), h("div", { class: "agm-table", tabindex: 0, role: "region", "aria-label": "Life ledger" }, table), cards, h("p", {}, COPY.deedsPerMinute(round.deedsPerMinute)), reflection, checkbox(), button("again", COPY.playAgain, () => { transition(session.state, "MENU"); start(); }), button("menu", COPY.backToMenu, menu));
+      pane.append(h("h3", {}, COPY.ledgerTitle), h("div", { class: "agm-table", tabindex: 0, role: "region", "aria-label": "Life ledger" }, table), cards, h("p", {}, COPY.deedsPerMinute(round.deedsPerMinute)), reflection, checkbox(), button("again", COPY.playAgain, () => { transition(session.state, "MENU"); start(); }), button("menu", COPY.backToMenu, menu), button("fullscreen", COPY.fullScreen, () => { void fullscreen.toggle(); }));
       dialogue.textContent = `${COPY.dayEnded} ${round.mode}. ${COPY.reflectionFeeling}`;
       pane.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
     }
